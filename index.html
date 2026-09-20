@@ -193,6 +193,19 @@ textarea{resize:none;min-height:72px}
 .photo-prev img{width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin:2px 0 12px;display:block}
 #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 92px);transform:translate(-50%,16px);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:99px;font-size:14px;font-weight:600;opacity:0;transition:.3s var(--ease);z-index:60;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1;transform:translate(-50%,0)}
+.unit{color:var(--muted);font-size:15px;flex:none}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:14px}
+.cmps{margin-top:10px}
+.cmp{display:grid;grid-template-columns:5.5em 1fr auto;align-items:baseline;gap:8px;padding:9px 0;border-top:.5px solid var(--line);font-size:15px}
+.cmp:first-child{border-top:0}
+.cmp-l{color:var(--muted)}
+.cmp-v{font-variant-numeric:tabular-nums}
+.cmp-d{color:var(--muted);font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+#update-banner{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 10px);z-index:45;max-width:536px;margin:0 auto;display:none;animation:pop .45s var(--ease)}
+#update-banner.show{display:block}
+.ub{display:flex;align-items:center;gap:10px;background:var(--ink);color:var(--bg);border-radius:18px;padding:12px 12px 12px 16px;box-shadow:0 10px 30px rgba(0,0,0,.18);font-weight:600;font-size:15px}
+.ub span{flex:1}
+.ub button{background:var(--accent);color:#fff;border-radius:99px;padding:8px 14px;font-size:14px;font-weight:700}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -201,10 +214,12 @@ textarea{resize:none;min-height:72px}
 <nav id="tabbar"></nav>
 <div id="sheet-root"></div>
 <div id="toast"></div>
+<div id="update-banner"></div>
 <script>
 'use strict';
 /* ============ Réglages de base ============ */
-const STORE_KEY = 'cockpit.v1';
+const APP_VERSION = '1.1';
+const STORE_KEY = 'cockpit.v1'; // ne jamais changer : c'est ici que sont tes données
 const FR = 'fr-FR';
 const SECTIONS = [
   { id: 'morning', title: 'Matin', icon: 'sunrise' },
@@ -215,6 +230,13 @@ const DEFAULT_ACTIONS = [
   ['Routine matin', 'morning', null], ['Skincare', 'morning', null],
   ['Objectif de pas', 'day', 'steps'], ['Hydratation', 'day', 'water'], ['Mouvement / sport', 'day', null],
   ['Skincare', 'evening', null], ['Préparer demain', 'evening', null], ['Routine du soir', 'evening', null]
+];
+const MEASURES = [
+  { id: 'waist', short: 'Taille', label: 'Tour de taille' },
+  { id: 'hips', short: 'Hanches', label: 'Tour de hanches' },
+  { id: 'thigh', short: 'Cuisse', label: 'Tour de cuisse' },
+  { id: 'chest', short: 'Poitrine', label: 'Tour de poitrine' },
+  { id: 'arm', short: 'Bras', label: 'Tour de bras' }
 ];
 const SPORTS = ['Marche', 'Course', 'Renfo', 'Pilates', 'Yoga', 'Vélo', 'Natation', 'Danse', 'Autre'];
 
@@ -284,6 +306,8 @@ const P = {
   camera: '<rect x="3" y="7" width="18" height="13" rx="3.5"/><path d="M8.5 7l1.7-2.5h3.6L15.5 7"/><circle cx="12" cy="13.5" r="3.5"/>',
   list: '<path d="M10 6.5h10M10 12h10M10 17.5h10M4 6.5l1.2 1.2L7.5 5.3M4 12l1.2 1.2L7.5 10.8M4 17.5l1.2 1.2 2.3-2.4"/>',
   share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M6 11H5.5A1.5 1.5 0 0 0 4 12.5v6A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5v-6a1.5 1.5 0 0 0-1.5-1.5H18"/>',
+  ruler: '<path d="M3.5 15.5 15.5 3.5l5 5-12 12Z"/><path d="M7 12l2 2M10 9l1.5 1.5M13 6l2 2"/>',
+  chevR: '<path d="M9 5l7 7-7 7"/>',
   wand: '<path d="M5 19 15.5 8.5M14 4l.6 1.6 1.6.6-1.6.6L14 8.4l-.6-1.6-1.6-.6 1.6-.6ZM19 9l.5 1.3 1.3.5-1.3.5L19 12.6l-.5-1.3-1.3-.5 1.3-.5Z"/>'
 };
 const ico = (n, s = 16) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -295,12 +319,16 @@ function defaultState() {
     v: 1,
     settings: { weddingDate: '2026-10-09', startDate: '2026-09-20', stepGoal: 8000, waterGoal: 1500, showWeight: false },
     actions: DEFAULT_ACTIONS.map((a, i) => ({ id: uid(), title: a[0], section: a[1], auto: a[2], order: i })),
-    days: {}, fasts: [], meals: [], mealStartedAt: null, lastBackup: null, createdAt: Date.now()
+    days: {}, fasts: [], meals: [], measures: [], mealStartedAt: null, lastBackup: null, createdAt: Date.now()
   };
 }
+// Migration douce : on ajoute ce qui manque, on ne supprime et ne renomme jamais rien.
 function normalize(s) {
   const d = defaultState();
-  return { ...d, ...s, settings: { ...d.settings, ...(s.settings || {}) } };
+  const out = { ...d, ...s, settings: { ...d.settings, ...(s.settings || {}) } };
+  for (const f of ['actions', 'fasts', 'meals', 'measures']) if (!Array.isArray(out[f])) out[f] = f === 'actions' ? d.actions : [];
+  if (!out.days || typeof out.days !== 'object') out.days = {};
+  return out;
 }
 function load() {
   try { const raw = localStorage.getItem(STORE_KEY); if (raw) return normalize(JSON.parse(raw)); } catch (e) {}
@@ -332,11 +360,41 @@ const actionsIn = sec => S.actions.filter(a => a.section === sec).sort((a, b) =>
 const mealsOn = k => S.meals.filter(m => keyOf(new Date(m.time)) === k).sort((a, b) => a.time - b.time);
 const currentFast = () => S.fasts.find(f => !f.end);
 const lastEndedFast = () => S.fasts.filter(f => f.end).sort((a, b) => b.end - a.end)[0];
+const fmtCm = v => v.toLocaleString(FR, { maximumFractionDigits: 1 }) + ' cm';
+const measuresSorted = () => S.measures.slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+const measureOn = k => S.measures.find(m => m.date === k);
+/** Dernière valeur connue pour chaque mesure (jusqu'au jour k inclus si fourni). */
+function latestMeasures(k) {
+  const out = {}; let date = null;
+  for (const m of measuresSorted()) {
+    if (k && m.date > k) break;
+    let any = false;
+    for (const f of MEASURES) if (m[f.id] != null) { out[f.id] = m[f.id]; any = true; }
+    if (any) date = m.date;
+  }
+  return { values: out, date };
+}
+function measureEvolution() {
+  const rows = [];
+  for (const f of MEASURES) {
+    const pts = measuresSorted().filter(m => m[f.id] != null);
+    if (!pts.length) continue;
+    rows.push({ f, first: pts[0], last: pts[pts.length - 1] });
+  }
+  return rows;
+}
+function fmtDelta(d) {
+  const r = Math.round(d * 10) / 10;
+  if (r === 0) return 'inchangé';
+  return (r > 0 ? '+' : '−') + Math.abs(r).toLocaleString(FR, { maximumFractionDigits: 1 }) + ' cm';
+}
+const shortDate = k => parseKey(k).toLocaleDateString(FR, { day: 'numeric', month: 'long' });
+
 function hasData(k) {
   const d = S.days[k];
   if (d && (d.water.length || d.steps != null || d.sportMin != null || d.sleepMin != null || d.weight != null ||
     d.energy || d.mood || d.bloating || Object.values(d.done).some(Boolean))) return true;
-  return mealsOn(k).length > 0;
+  return mealsOn(k).length > 0 || !!measureOn(k);
 }
 function W() {
   const s = S.settings, t = today();
@@ -590,6 +648,50 @@ function dayPlanCard(k) {
   </section>`;
 }
 
+function measureTiles(values) {
+  const order = ['waist', 'hips', 'thigh', 'chest', 'arm'].filter(id => values[id] != null);
+  return order.map(id => { const f = MEASURES.find(x => x.id === id);
+    return `<div class="tile"><span class="v">${fmtCm(values[id])}</span><span class="t">${f.short}</span></div>`; });
+}
+function measuresCard(k, detail = false) {
+  const head = t => `<div class="row between"><div class="label">${ico('ruler')} Mensurations</div>${t}</div>`;
+  if (detail) {
+    const m = measureOn(k);
+    if (!m) return `<section class="card">${head(`<button class="pill" data-act="measure-edit" data-key="${k}">${ico('plus', 13)} Ajouter</button>`)}
+      <p class="empty">Aucune mesure ce jour-là.</p></section>`;
+    const vals = {}; MEASURES.forEach(f => { if (m[f.id] != null) vals[f.id] = m[f.id]; });
+    return `<section class="card">${head(`<button class="pill" data-act="measure-edit" data-key="${k}">${ico('pencil', 13)} Modifier</button>`)}
+      <div class="mgrid">${measureTiles(vals).join('')}</div></section>`;
+  }
+  const { values, date } = latestMeasures();
+  const btn = `<button class="pill" data-act="measure-edit" data-key="${k}">${ico('pencil', 13)} Mettre à jour</button>`;
+  if (!date) return `<section class="card">${head(btn)}<p class="note">Facultatif : note tes mensurations quand tu le souhaites.</p></section>`;
+  const tiles = measureTiles(values);
+  const main = tiles.slice(0, 2).join(''), more = tiles.length - 2;
+  return `<section class="card">${head(btn)}
+    <p class="note" style="margin-top:8px">Dernière mesure : ${esc(shortDate(date))}${date === today() ? " (aujourd'hui)" : ''}</p>
+    <div class="tiles">${main}</div>
+    <div class="row between" style="margin-top:12px">
+      <span class="note" style="margin:0;font-size:13px">${more > 0 ? `+ ${more} autre${more > 1 ? 's' : ''} mesure${more > 1 ? 's' : ''}` : ''}</span>
+      <button class="linkish" style="color:var(--accent)" data-act="measure-history">Voir l'évolution ${ico('chevR', 13)}</button></div>
+  </section>`;
+}
+function evolutionRows() {
+  return measureEvolution().map(({ f, first, last }) => {
+    const same = first.date === last.date;
+    return `<div class="cmp"><span class="cmp-l">${f.short}</span>
+      <span class="cmp-v">${same ? fmtCm(last[f.id]) : `${first[f.id].toLocaleString(FR, { maximumFractionDigits: 1 })} → ${fmtCm(last[f.id])}`}</span>
+      <span class="cmp-d">${same ? '' : fmtDelta(last[f.id] - first[f.id])}</span></div>`;
+  }).join('');
+}
+function evolutionCard() {
+  const s = measuresSorted(); if (!s.length) return '';
+  return `<section class="card"><div class="row between"><div class="label">${ico('ruler')} Mensurations</div>
+      <button class="pill soft" data-act="measure-history">Historique</button></div>
+    <p class="note" style="margin-top:8px">${s.length > 1 ? `Du ${esc(shortDate(s[0].date))} au ${esc(shortDate(s[s.length - 1].date))}` : `Mesure du ${esc(shortDate(s[0].date))}`}</p>
+    <div class="cmps">${evolutionRows()}</div></section>`;
+}
+
 function backupNudge() {
   const now = Date.now(), ref = S.lastBackup || S.createdAt;
   if (now - ref < 4 * 86400000) return '';
@@ -603,7 +705,7 @@ function backupNudge() {
 function renderToday() {
   const k = today();
   return `<header class="head"><div class="eyebrow">${esc(fmtLongDate(k)).toUpperCase()}</div><h1 class="title">${greeting()}</h1></header>
-    ${installBanner()}${heroCard()}${activityCard(k)}${fastingCard()}${waterCard(k)}${checkinCard(k)}${dayPlanCard(k)}${backupNudge()}`;
+    ${installBanner()}${heroCard()}${activityCard(k)}${fastingCard()}${waterCard(k)}${checkinCard(k)}${measuresCard(k)}${dayPlanCard(k)}${backupNudge()}`;
 }
 
 function statsCard(w) {
@@ -641,7 +743,7 @@ function renderJourney() {
     <section class="card"><div class="label">${ico('calendar')} Calendrier</div>
       <div class="grid">${cells.join('')}</div>
       <p class="note">Touche un jour pour revoir ou compléter ton suivi. Le point indique un jour renseigné.</p></section>
-    ${statsCard(w)}`;
+    ${statsCard(w)}${evolutionCard()}`;
 }
 
 function renderDayDetail(k) {
@@ -661,7 +763,7 @@ function renderDayDetail(k) {
     <section class="card"><div class="row between"><div class="label">${ico('fork')} Repas</div>
       <button class="pill" data-act="meal-new" data-key="${k}">${ico('plus', 13)} Ajouter</button></div>
       ${meals.length ? `<div class="meals" style="margin-top:8px">${meals.map(mealRow).join('')}</div>` : '<p class="empty">Aucun repas enregistré</p>'}</section>
-    ${checkinCard(k)}${dayPlanCard(k)}`;
+    ${checkinCard(k)}${measuresCard(k, true)}${dayPlanCard(k)}`;
 }
 
 function stepperRow(title, value, field, step) {
@@ -703,6 +805,11 @@ function renderSettings() {
       <label class="btn-soft" style="--c:var(--muted)">Restaurer une sauvegarde<input type="file" id="import-file" style="display:none"></label>
       <p class="note" style="margin:0">Dernière sauvegarde : ${esc(lb)}</p>
     </div></section>
+    <div class="group-title">Application</div>
+    <section class="card flat">
+      <div class="srow"><span>Version</span><b>${APP_VERSION}</b></div>
+      <div class="srow"><button class="grow" style="color:var(--accent);font-weight:600" data-act="check-update">Rechercher une mise à jour</button></div>
+    </section>
     <p class="note center" style="margin:22px 0 0">Aucun compte, aucun serveur. Tout reste sur ton iPhone.</p>`;
 }
 
@@ -883,6 +990,55 @@ function openMealSheet({ meal = null, dayKey = today(), fromFast = false }) {
   });
 }
 
+function openMeasureSheet(k) {
+  const existing = measureOn(k);
+  const pre = existing ? existing : latestMeasures(k).values;
+  const when = k === today() ? "aujourd'hui" : 'le ' + fmtLongDate(k);
+  openSheet({
+    title: 'Mensurations',
+    body: `<div class="group">${MEASURES.map(f => `<label class="field"><span>${f.label}</span>
+        <input id="ms-${f.id}" type="text" inputmode="decimal" placeholder="—" value="${pre[f.id] != null ? String(pre[f.id]).replace('.', ',') : ''}">
+        <span class="unit">cm</span></label>`).join('')}</div>
+      <p class="hint">Mesures ${esc(when)}. Tous les champs sont facultatifs${existing ? '' : ' ; les dernières valeurs connues sont préremplies, modifie seulement celles qui ont changé'}.</p>
+      ${existing ? '<button class="btn-danger" data-sact="del">Supprimer les mesures de ce jour</button>' : ''}`,
+    onSave() {
+      const vals = {}; let any = false;
+      for (const f of MEASURES) {
+        const raw = ($(`#ms-${f.id}`).value || '').trim().replace(',', '.');
+        if (raw === '') { vals[f.id] = null; continue; }
+        const v = parseFloat(raw);
+        if (isNaN(v) || v <= 0 || v > 300) { toast(`${f.short} : valeur non reconnue`); return false; }
+        vals[f.id] = Math.round(v * 10) / 10; any = true;
+      }
+      if (!any) { toast('Saisis au moins une mesure'); return false; }
+      if (existing) Object.assign(existing, vals, { updatedAt: Date.now() });
+      else S.measures.push({ id: uid(), date: k, ...vals, updatedAt: Date.now() });
+      save(); toast('Mensurations enregistrées');
+    },
+    actions: existing ? {
+      del() {
+        if (!confirm('Supprimer les mesures de ce jour ?')) return;
+        S.measures = S.measures.filter(x => x !== existing); save(); closeSheet(); render();
+      }
+    } : {}
+  });
+}
+function openMeasureHistory() {
+  const list = measuresSorted().reverse();
+  openSheet({
+    title: 'Évolution', noSave: true, cancelLabel: 'Fermer',
+    body: list.length ? `<p class="hint" style="margin-bottom:8px">Première mesure → dernière mesure</p>
+      <div class="group" style="padding:6px 14px"><div class="cmps" style="margin:0">${evolutionRows()}</div></div>
+      <p class="hint" style="margin-bottom:8px">Historique</p>
+      <div class="group">${list.map(m => `<button class="field" style="width:100%" data-sact="edit" data-key="${m.date}">
+        <span>${esc(cap(shortDate(m.date)))}</span>
+        <span class="muted" style="font-size:14px;text-align:right">${MEASURES.filter(f => m[f.id] != null).map(f => `${f.short} ${m[f.id].toLocaleString(FR, { maximumFractionDigits: 1 })}`).join(' · ')}</span></button>`).join('')}</div>
+      <p class="hint">Touche une date pour la modifier.</p>`
+      : '<p class="hint">Aucune mesure pour le moment.</p>',
+    actions: { edit(el) { openMeasureSheet(el.dataset.key); } }
+  });
+}
+
 function openFastSheet(f) {
   if (!f) return;
   openSheet({
@@ -1056,6 +1212,10 @@ document.addEventListener('click', async e => {
     case 'fast-end': endFast(); break;
     case 'fast-edit': openFastSheet(S.fasts.find(f => f.id === t.dataset.id)); break;
     case 'unwell': openUnwellSheet(); break;
+    case 'measure-edit': openMeasureSheet(k || today()); break;
+    case 'measure-history': openMeasureHistory(); break;
+    case 'apply-update': applyUpdate(); break;
+    case 'check-update': checkForUpdate(true); break;
     case 'meal-new': openMealSheet(k ? { dayKey: k } : { dayKey: today(), fromFast: !!S.mealStartedAt }); break;
     case 'meal-edit': { const m = S.meals.find(x => x.id === t.dataset.id); if (m) openMealSheet({ meal: m }); break; }
     case 'goal': {
@@ -1096,8 +1256,46 @@ setInterval(() => {
 render();
 DB.loadAll().then(all => { Object.assign(photoCache, all); if (Object.keys(all).length && !sheet) render(); }).catch(() => {});
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+/* ============ Mises à jour de l'app ============ */
+let swReg = null;
+function showUpdateBanner() {
+  const b = $('#update-banner'); if (!b) return;
+  b.innerHTML = `<div class="ub">${ico('sparkles', 18)}<span>Nouvelle version disponible</span>
+    <button data-act="apply-update">Mettre à jour</button></div>`;
+  b.classList.add('show');
+}
+function watchWorker(w) {
+  if (!w) return;
+  w.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) showUpdateBanner(); });
+}
+async function checkForUpdate(manual) {
+  if (!swReg) { if (manual) toast('Mise à jour indisponible ici'); return; }
+  try {
+    await swReg.update();
+    if (manual) setTimeout(() => { if (!swReg.waiting && !swReg.installing) toast(`Tu as la dernière version (${APP_VERSION})`); }, 1500);
+  } catch (e) { if (manual) toast('Pas de connexion'); }
+}
+function applyUpdate() {
+  save(); // tes données sont enregistrées avant le rechargement
+  if (swReg && swReg.waiting) swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
+  else location.reload();
+}
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true; location.reload();
+  });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      swReg = reg;
+      if (reg.waiting && navigator.serviceWorker.controller) showUpdateBanner();
+      watchWorker(reg.installing);
+      reg.addEventListener('updatefound', () => watchWorker(reg.installing));
+    }).catch(() => {});
+  });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(false); });
 }
 if (!localStorage.getItem(STORE_KEY)) save();
 </script>
